@@ -49,37 +49,43 @@ app.get('/quiz/:id', async (req: Request, res: Response) => {
 })
 
 app.post('/checkAnswers', async (req: Request, res: Response) => {
-    const { answers } = req.body;
+    const { id, answers } = req.body;
     console.log(answers)
     try {
-        // New logic: loop through each answer to get if they are correct or not.. but maybe we need to find a better way to send the answers from frontend
-        // const resultArr = [];
-        // answers.forEach(async (answer) => {
-        //     if (answer == null) {
-        //         resultArr.push({})
-        //     }
-        // })
-        const answersArr = await prisma.answer.findMany({
+        const quiz = await prisma.quiz.findFirst({
             where: {
                 id: {
-                    in: answers
+                    equals: +id
+                }
+            },
+            include: {
+                questions: {
+                    include: {
+                        answers: true
+                    }
                 }
             }
         })
+        const resultsArr: boolean[] = [];
         let correctCount = 0;
-        const resultList: { id: number; isCorrect: boolean; }[] = [];
-        answersArr.forEach((answer) => {
-            if (answer.isCorrect) {
-                correctCount += 1;
+        answers.forEach((answer: number | null, index: number) => {
+            if (answer === null) {
+                resultsArr.push(false);
+            } else {
+                const matchedAns = quiz!.questions[index].answers.find((ans) => ans.id == +answer)!;
+                if (matchedAns.isCorrect) {
+                    resultsArr.push(true);
+                    correctCount += 1;
+                } else {
+                    resultsArr.push(false);
+                }
             }
-            resultList.push({ id: answer.id, isCorrect: answer.isCorrect });
         })
-        const result = {
+        res.status(200).json({
             correctCount,
             score: correctCount/answers.length * 100,
-            list: resultList
-        };
-        res.status(200).json(result);
+            list: resultsArr
+        });
     } catch (error) {
         console.log(error);
         res.status(500).send("Internal Server Error!");

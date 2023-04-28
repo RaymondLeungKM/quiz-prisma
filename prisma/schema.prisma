@@ -30,6 +30,7 @@ model Question {
   quizId Int
   created_by String
   created_date DateTime @default(now())
+  @@unique([quizId, order])
 }
 
 model Answer {
@@ -41,4 +42,5 @@ model Answer {
   questionId Int
   created_by String
   created_date DateTime @default(now())
+  @@unique([questionId, order])
 }

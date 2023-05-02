@@ -79,6 +79,45 @@ app.get("/quiz/edit/:id", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/quiz/delete/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    // delete answers => questions => quiz in this order
+    // need to get all questionsId with quizId = id first
+    const questions = await prisma.question.findMany({
+      where: {
+        quizId: +id,
+      },
+    });
+    const questionIds = questions.map((question) => question.id);
+    const deletedAnswers = await prisma.answer.deleteMany({
+      where: {
+        questionId: {
+          in: questionIds,
+        },
+      },
+    });
+    const deletedQuestions = await prisma.question.deleteMany({
+      where: {
+        quizId: +id,
+      },
+    });
+    const deletedQuiz = await prisma.quiz.delete({
+      where: {
+        id: +id,
+      },
+    });
+    res.status(200).json({
+      deletedQuizCount: deletedQuiz,
+      deletedQuestionCount: deletedQuestions,
+      deletedAnswerCount: deletedAnswers
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
 app.post("/quiz/add", async (req: Request, res: Response) => {
   const { quiz, questions, answers } = req.body;
   // console.log(quiz, questions, answers);
@@ -358,13 +397,13 @@ app.post("/checkAnswers", async (req: Request, res: Response) => {
       }
     });
     const correctAnswers = quiz!.questions.map((question) => {
-        return question.answers.find((answer) => answer.isCorrect)!.id
-    })
+      return question.answers.find((answer) => answer.isCorrect)!.id;
+    });
     res.status(200).json({
       correctCount,
       score: (correctCount / answers.length) * 100,
       list: resultsArr,
-      correctAnswers
+      correctAnswers,
     });
   } catch (error) {
     console.log(error);

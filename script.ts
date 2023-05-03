@@ -13,7 +13,11 @@ app.get("", (req: Request, res: Response) => {
 });
 
 app.get("/quiz", async (req: Request, res: Response) => {
-  const quizzes = await prisma.quiz.findMany({});
+  const quizzes = await prisma.quiz.findMany({
+    include: {
+      category: true,
+    },
+  });
   res.status(200).json(quizzes);
 });
 
@@ -42,6 +46,7 @@ app.get("/quiz/:id", async (req: Request, res: Response) => {
             },
           },
         },
+        category: true,
       },
     });
     res.status(200).json(quiz);
@@ -70,6 +75,7 @@ app.get("/quiz/edit/:id", async (req: Request, res: Response) => {
             },
           },
         },
+        category: true,
       },
     });
     res.status(200).json(quiz);
@@ -110,7 +116,7 @@ app.post("/quiz/delete/:id", async (req: Request, res: Response) => {
     res.status(200).json({
       deletedQuizCount: deletedQuiz,
       deletedQuestionCount: deletedQuestions,
-      deletedAnswerCount: deletedAnswers
+      deletedAnswerCount: deletedAnswers,
     });
   } catch (error) {
     console.log(error);
@@ -122,10 +128,23 @@ app.post("/quiz/add", async (req: Request, res: Response) => {
   const { quiz, questions, answers } = req.body;
   // console.log(quiz, questions, answers);
   try {
+    const quizCategories = quiz.category;
+    const categories = await prisma.category.findMany({
+      where: {
+        name: {
+          in: quizCategories,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
     const newQuiz = await prisma.quiz.create({
       data: {
         quiz_name: quiz.quiz_name,
-        category: quiz.category,
+        category: {
+          connect: categories,
+        },
         duration: +quiz.duration,
         created_by: quiz.createdBy ? quiz.createdBy : "Raymond",
       },
@@ -199,13 +218,37 @@ app.post("/quiz/edit", async (req: Request, res: Response) => {
   // but wait.. we could have new questions and new answers... need to think of a way to do that..
   try {
     // also need to consider the case when deleting
+    const quizCategories = quiz.category;
+    const categories = await prisma.category.findMany({
+      where: {
+        name: {
+          in: quizCategories,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+    const notInCategories = await prisma.category.findMany({
+      where: {
+        name: {
+          notIn: quizCategories,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
     const updateQuiz = await prisma.quiz.update({
       where: {
         id: +quiz.id,
       },
       data: {
         quiz_name: quiz.quiz_name,
-        category: quiz.category,
+        category: {
+          connect: categories,
+          disconnect: notInCategories,
+        },
         duration: +quiz.duration,
       },
     });
@@ -405,6 +448,69 @@ app.post("/checkAnswers", async (req: Request, res: Response) => {
       list: resultsArr,
       correctAnswers,
     });
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.get("/category", async (req: Request, res: Response) => {
+  try {
+    const categories = await prisma.category.findMany({});
+    res.status(200).json(categories);
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.post("/category/add", async (req: Request, res: Response) => {
+  const { name, createdBy } = req.body;
+  console.log(name);
+  console.log(createdBy);
+  try {
+    const createdCategory = await prisma.category.create({
+      data: {
+        name: name,
+        created_by: createdBy != "" ? createdBy : "Raymond",
+      },
+    });
+    res.status(200).json(createdCategory);
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.post("/category/:id/edit", async (req: Request, res: Response) => {
+  const { id, name, createdBy } = req.body;
+  try {
+    const updatedCategory = await prisma.category.update({
+      data: {
+        name: name,
+        created_by: createdBy != "" ? createdBy : "Raymond",
+      },
+      where: {
+        id: +id,
+      },
+    });
+    res.status(200).json(updatedCategory);
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.post("/category/delete/:id", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  console.log(id)
+  try {
+    const deletedCategory = await prisma.category.delete({
+      where: {
+        id: +id,
+      },
+    });
+    res.status(200).json(deletedCategory);
   } catch (error) {
     console.log(error);
     res.status(500).send("Internal Server Error!");

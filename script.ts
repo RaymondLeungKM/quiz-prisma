@@ -1,7 +1,16 @@
-import express from "express";
+const express = require("express");
 const cors = require("cors");
-import { Request, Response } from "express";
+const auth = require("./auth");
+import { Request, Response, Router } from "express";
 import { PrismaClient } from "@prisma/client";
+const crypto = require("crypto");
+const dotenv = require("dotenv");
+dotenv.config();
+const jwt = require("jsonwebtoken");
+
+function generateAccessToken(username: String, isAdmin: Boolean) {
+  return jwt.sign({username, isAdmin}, process.env.TOKEN_SECRET, { expiresIn: "1800s" });
+}
 
 const prisma = new PrismaClient();
 const app = express();
@@ -56,7 +65,7 @@ app.get("/quiz/:id", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/quiz/edit/:id", async (req: Request, res: Response) => {
+app.get("/quiz/edit/:id", auth.isAuthorized, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const quiz = await prisma.quiz.findFirst({
@@ -85,7 +94,7 @@ app.get("/quiz/edit/:id", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/quiz/delete/:id", async (req: Request, res: Response) => {
+app.post("/quiz/delete/:id", auth.isAuthorized, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     // delete answers => questions => quiz in this order
@@ -124,7 +133,7 @@ app.post("/quiz/delete/:id", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/quiz/add", async (req: Request, res: Response) => {
+app.post("/quiz/add", auth.isAuthorized, async (req: Request, res: Response) => {
   const { quiz, questions, answers } = req.body;
   // console.log(quiz, questions, answers);
   try {
@@ -211,7 +220,7 @@ app.post("/quiz/add", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/quiz/edit", async (req: Request, res: Response) => {
+app.post("/quiz/edit", auth.isAuthorized, async (req: Request, res: Response) => {
   const { quiz, questions, answers } = req.body;
 
   // update quiz => question => answers in this order; actually might not need to be in this order as we already have the id of the related records
@@ -404,7 +413,7 @@ app.post("/quiz/edit", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/checkAnswers", async (req: Request, res: Response) => {
+app.post("/checkAnswers", auth.isAuthorized, async (req: Request, res: Response) => {
   const { id, answers } = req.body;
   console.log(answers);
   try {
@@ -464,7 +473,7 @@ app.get("/category", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/category/add", async (req: Request, res: Response) => {
+app.post("/category/add", auth.isAuthorized, async (req: Request, res: Response) => {
   const { name, createdBy } = req.body;
   console.log(name);
   console.log(createdBy);
@@ -482,7 +491,7 @@ app.post("/category/add", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/category/:id/edit", async (req: Request, res: Response) => {
+app.post("/category/:id/edit", auth.isAuthorized, async (req: Request, res: Response) => {
   const { id, name, createdBy } = req.body;
   try {
     const updatedCategory = await prisma.category.update({
@@ -501,9 +510,9 @@ app.post("/category/:id/edit", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/category/delete/:id", async (req: Request, res: Response) => {
+app.post("/category/delete/:id", auth.isAuthorized, async (req: Request, res: Response) => {
   const { id } = req.params;
-  console.log(id)
+  console.log(id);
   try {
     const deletedCategory = await prisma.category.delete({
       where: {
@@ -511,6 +520,105 @@ app.post("/category/delete/:id", async (req: Request, res: Response) => {
       },
     });
     res.status(200).json(deletedCategory);
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.post("/register", async (req: Request, res: Response) => {
+  const { name, password, email } = req.body;
+
+  if (!name) {
+    return res.status(400).send({
+      msg: "Username is required!",
+    });
+  } else if (!password) {
+    return res.status(400).send({
+      msg: "Password is required!",
+    });
+  } else if (!email) {
+    return res.status(400).send({
+      msg: "Email is required!",
+    });
+  }
+
+  try {
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: {
+          name: name,
+          email: email,
+        },
+      },
+    });
+    if (existingUser != null) {
+      return res.status(400).send({
+        msg: "User already exist! Please use another username!",
+      });
+    }
+    const md5 = crypto.createHash("md5");
+    const encryptedPassword = md5.update(password).digest("hex");
+    const newUser = await prisma.user.create({
+      data: {
+        name: name,
+        email: email,
+        password: encryptedPassword,
+      },
+    });
+    const token = generateAccessToken(name, false);
+    res.status(200).send({
+      msg: "User created successfully!",
+      token: token,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
+
+app.post("/login", async (req: Request, res: Response) => {
+  const { name, password } = req.body;
+
+  if (!name) {
+    return res.status(400).send({
+      msg: "Username is required!",
+    });
+  } else if (!password) {
+    return res.status(400).send({
+      msg: "Password is required!",
+    });
+  }
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        name: {
+          equals: name,
+        },
+      },
+    });
+
+    if (user != null) {
+      console.log(user);
+      const md5 = crypto.createHash("md5");
+      const encryptedPassword = md5.update(password).digest("hex");
+      if (encryptedPassword == user.password) {
+        const token = generateAccessToken(name, user.isAdmin);
+        res.status(200).send({
+          msg: "Logged in successfully",
+          token: token
+        });
+      } else {
+        res.status(401).send({
+          msg: "Incorrect password!",
+        });
+      }
+    } else {
+      res.status(401).send({
+        msg: "User not found!",
+      });
+    }
   } catch (error) {
     console.log(error);
     res.status(500).send("Internal Server Error!");

@@ -31,7 +31,10 @@ module.exports.isAuthorized = async (
     (err: any, user: any) => {
       if (err) {
         console.log("auth error=", err);
-        return res.sendStatus(403);
+        return res.status(403).send({
+          code: "E403JWT",
+          msg: "JWT expired!"
+        });
       }
 
       req.user = user;

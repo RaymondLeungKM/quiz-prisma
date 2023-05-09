@@ -5,6 +5,8 @@ import { APIRequest } from "./auth";
 import { Response } from "express";
 import { PrismaClient, User } from "@prisma/client";
 const crypto = require("crypto");
+// for generating a random hash
+// console.log(crypto.randomBytes(64).toString('hex'))
 // for generating password of a user
 // const md5 = crypto.createHash('md5');
 // const result = md5.update('abcd1234').digest('hex');
@@ -15,14 +17,93 @@ const jwt = require("jsonwebtoken");
 
 function generateAccessToken(user: User) {
   return jwt.sign({ ...user }, process.env.TOKEN_SECRET, {
-    expiresIn: "1800s",
+    expiresIn: "15s",
   });
 }
+
+const submitQuizResult = async (
+  correctCount: number,
+  score: number,
+  answers: Array<number>,
+  correctAnswers: Array<number>,
+  resultsArr: Array<Boolean>,
+  quizId: number,
+  userId: number,
+  quizDate: Date
+) => {
+  try {
+    let transformedAnswers = "";
+    answers.forEach((answer) => {
+      if (transformedAnswers == "") {
+        transformedAnswers += answer;
+      } else {
+        transformedAnswers += `,${answer}`;
+      }
+    });
+    let transformedCorrectAnswers = "";
+    correctAnswers.forEach((answer) => {
+      if (transformedCorrectAnswers == "") {
+        transformedCorrectAnswers += answer;
+      } else {
+        transformedCorrectAnswers += `,${answer}`;
+      }
+    });
+    let transformedResultsArr = "";
+    resultsArr.forEach((result) => {
+      if (transformedResultsArr == "") {
+        transformedResultsArr += result;
+      } else {
+        transformedResultsArr += `,${result}`;
+      }
+    });
+    const quiz_result = await prisma.quizResult.create({
+      data: {
+        correctCount: correctCount,
+        score: score,
+        answers: transformedAnswers,
+        correctAnswers: transformedCorrectAnswers,
+        resultsArr: transformedResultsArr,
+        quizId: quizId,
+        userId: userId,
+        quiz_date: quizDate,
+      },
+    });
+    return quiz_result;
+  } catch (error) {
+    console.log(error);
+    throw new Error("Submit Quiz Result failed!");
+  }
+};
 
 const prisma = new PrismaClient();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.post("/token", async (req: APIRequest, res: Response) => {
+  try {
+    const { refresh_token } = req.body;
+    if (refresh_token == null) return res.sendStatus(401);
+    const storedToken = await prisma.refresh_Tokens.findFirst({
+      where: {
+        refresh_token: refresh_token,
+      },
+    });
+    if (storedToken == null) return res.sendStatus(403);
+    jwt.verify(
+      refresh_token,
+      process.env.REFRESH_TOKEN_SECRET,
+      (err: any, user: User) => {
+        if (err) return res.sendStatus(403);
+        const accessToken = generateAccessToken({ ...user });
+        res.json({ accessToken: accessToken });
+      }
+    );
+  } catch (error) {
+    console.log(error);
+    res.status(500).send("Internal Server Error!");
+  }
+});
 
 app.get("", (req: APIRequest, res: Response) => {
   res.status(200).send("Welcome to the Quiz App Server!");
@@ -58,28 +139,6 @@ app.get(
     }
   }
 );
-
-const submitQuizResult = async (
-  score: number,
-  quizId: number,
-  userId: number,
-  createdDate: Date
-) => {
-  try {
-    const quiz_result = await prisma.quizResult.create({
-      data: {
-        score: score,
-        quizId: quizId,
-        userId: userId,
-        created_date: createdDate,
-      },
-    });
-    return quiz_result;
-  } catch (error) {
-    console.log(error);
-    throw new Error("Submit Quiz Result failed!");
-  }
-};
 
 app.get("/quiz/:id", async (req: APIRequest, res: Response) => {
   const { id } = req.params;
@@ -523,7 +582,16 @@ app.post(
         return question.answers.find((answer) => answer.isCorrect)!.id;
       });
       const score = (correctCount / answers.length) * 100;
-      const quiz_result = submitQuizResult(+score, +id, +user.id, new Date());
+      const quiz_result = submitQuizResult(
+        correctCount,
+        +score,
+        answers,
+        correctAnswers,
+        resultsArr,
+        +id,
+        +user.id,
+        new Date()
+      );
       res.status(200).json({
         correctCount,
         score: score,
@@ -652,10 +720,13 @@ app.post("/register", async (req: APIRequest, res: Response) => {
         password: encryptedPassword,
       },
     });
-    const token = generateAccessToken({ ...newUser });
+    const access_token = generateAccessToken({ ...newUser });
+    const refresh_token = jwt.sign(newUser, process.env.REFRESH_TOKEN_SECRET);
+    // save the refreshToken in DB
     res.status(200).send({
       msg: "User created successfully!",
-      token: token,
+      access_token: access_token,
+      refresh_token: refresh_token,
     });
   } catch (error) {
     console.log(error);
@@ -690,10 +761,28 @@ app.post("/login", async (req: APIRequest, res: Response) => {
       const md5 = crypto.createHash("md5");
       const encryptedPassword = md5.update(password).digest("hex");
       if (encryptedPassword == user.password) {
-        const token = generateAccessToken({ ...user });
+        const access_token = generateAccessToken({ ...user });
+        const refresh_token = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET);
+        const savedRefreshToken = await prisma.refresh_Tokens.upsert({
+          where: {
+            refresh_token_userId: {
+              refresh_token: refresh_token,
+              userId: user.id,
+            },
+          },
+          update: {
+            refresh_token: refresh_token,
+            userId: user.id,
+          },
+          create: {
+            refresh_token: refresh_token,
+            userId: user.id,
+          },
+        });
         res.status(200).send({
           msg: "Logged in successfully",
-          token: token,
+          access_token: access_token,
+          refresh_token: refresh_token,
         });
       } else {
         res.status(401).send({

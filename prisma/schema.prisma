@@ -57,22 +57,38 @@ model Category {
 }
 
 model User {
-  id           Int          @id @default(autoincrement())
-  name         String       @unique
-  email        String
-  password     String
-  isAdmin      Boolean      @default(false)
-  created_date DateTime     @default(now())
-  QuizResult   QuizResult[]
+  id             Int              @id @default(autoincrement())
+  name           String           @unique
+  email          String
+  password       String
+  isAdmin        Boolean          @default(false)
+  created_date   DateTime         @default(now())
+  QuizResult     QuizResult[]
+  Refresh_Tokens Refresh_Tokens[]
 }
 
 model QuizResult {
-  id           Int      @id @default(autoincrement())
-  score        Int
+  id             Int      @id @default(autoincrement())
+  correctCount   Int
+  score          Int
+  answers        String
+  resultsArr     String
+  correctAnswers String
   // maybe add an answers array to be shown in review mode
-  parentQuiz   Quiz     @relation(fields: [quizId], references: [id])
-  quizId       Int
-  parentUser   User     @relation(fields: [userId], references: [id])
-  userId       Int
-  created_date DateTime @default(now())
+  parentQuiz     Quiz     @relation(fields: [quizId], references: [id])
+  quizId         Int
+  parentUser     User     @relation(fields: [userId], references: [id])
+  userId         Int
+  quiz_date      DateTime
+  created_date   DateTime @default(now())
+}
+
+model Refresh_Tokens {
+  id            Int      @id @default(autoincrement())
+  refresh_token String
+  parentUser    User     @relation(fields: [userId], references: [id])
+  userId        Int
+  created_date  DateTime @default(now())
+
+  @@unique([refresh_token, userId])
 }

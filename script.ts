@@ -16,9 +16,13 @@ dotenv.config();
 const jwt = require("jsonwebtoken");
 
 function generateAccessToken(user: User) {
-  return jwt.sign({ ...user }, process.env.TOKEN_SECRET, {
-    expiresIn: "15s",
-  });
+  return jwt.sign(
+    { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin },
+    process.env.ACCESS_TOKEN_SECRET,
+    {
+      expiresIn: "30s",
+    }
+  );
 }
 
 const submitQuizResult = async (
@@ -81,6 +85,7 @@ app.use(cors());
 app.use(express.json());
 
 app.post("/token", async (req: APIRequest, res: Response) => {
+  console.log("in post /token");
   try {
     const { refresh_token } = req.body;
     if (refresh_token == null) return res.sendStatus(401);
@@ -95,8 +100,8 @@ app.post("/token", async (req: APIRequest, res: Response) => {
       process.env.REFRESH_TOKEN_SECRET,
       (err: any, user: User) => {
         if (err) return res.sendStatus(403);
-        const accessToken = generateAccessToken({ ...user });
-        res.json({ accessToken: accessToken });
+        const accessToken = generateAccessToken(user);
+        res.json({ access_token: accessToken });
       }
     );
   } catch (error) {
@@ -721,7 +726,7 @@ app.post("/register", async (req: APIRequest, res: Response) => {
       },
     });
     const access_token = generateAccessToken({ ...newUser });
-    const refresh_token = jwt.sign(newUser, process.env.REFRESH_TOKEN_SECRET);
+    const refresh_token = jwt.sign({ id: newUser.id, name: newUser.name }, process.env.REFRESH_TOKEN_SECRET);
     // save the refreshToken in DB
     res.status(200).send({
       msg: "User created successfully!",
@@ -762,7 +767,9 @@ app.post("/login", async (req: APIRequest, res: Response) => {
       const encryptedPassword = md5.update(password).digest("hex");
       if (encryptedPassword == user.password) {
         const access_token = generateAccessToken({ ...user });
-        const refresh_token = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET);
+        const refresh_token = jwt.sign({ id: user.id, name: user.email }, process.env.REFRESH_TOKEN_SECRET);
+        console.log("access_token=" + access_token);
+        console.log("refresh_token=" + refresh_token);
         const savedRefreshToken = await prisma.refresh_Tokens.upsert({
           where: {
             refresh_token_userId: {

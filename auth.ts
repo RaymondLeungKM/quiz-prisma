@@ -27,7 +27,7 @@ module.exports.isAuthorized = async (
 
   jwt.verify(
     token,
-    process.env.TOKEN_SECRET as string,
+    process.env.ACCESS_TOKEN_SECRET as string,
     (err: any, user: any) => {
       if (err) {
         console.log("auth error=", err);
